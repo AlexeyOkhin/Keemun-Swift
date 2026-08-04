@@ -1,5 +1,7 @@
 import Foundation
 
+/// Result of an `Update` or `Start`. Holds only the new state and the effects to run, so it is
+/// `Sendable` whenever those values are.
 public struct Next<State, Effect> {
     public let state: State
     public let effects: [Effect]
@@ -9,6 +11,8 @@ public struct Next<State, Effect> {
         self.effects = effects
     }
 }
+
+extension Next: Sendable where State: Sendable, Effect: Sendable {}
 
 public extension Next {
     static func next(_ state: State) -> Next<State, Effect> {

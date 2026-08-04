@@ -26,7 +26,7 @@ extension CounterFeature {
 }
 
 extension CounterFeature {
-    nonisolated(unsafe) static let externalUpdate = Update<State, ExternalMsg, Effect> { msg, state in
+    static let externalUpdate = Update<State, ExternalMsg, Effect> { msg, state in
         switch msg {
         case .incrementSync:
             return .next(state) { $0.syncCount = $0.syncCount + 1 }
@@ -50,7 +50,7 @@ extension CounterFeature {
         }
     }
     
-    nonisolated(unsafe) static let internalUpdate = Update<State, InternalMsg, Effect> { msg, state in
+    static let internalUpdate = Update<State, InternalMsg, Effect> { msg, state in
         switch msg {
         case .completedAsyncOperation(let newValue):
             return .next(state) {

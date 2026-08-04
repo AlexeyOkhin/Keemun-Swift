@@ -1,5 +1,7 @@
 # v2.2.0
 - Added support for Swift 6 and `swift-tools-version: 6.2`.
+- Marked `Update` and `Start` as `Sendable` (their closures are `@Sendable`) and `Next` as conditionally
+`Sendable`. Pure `static let` updates no longer need `nonisolated(unsafe)`.
 - Fixed a data race on the store's subscription bookkeeping. Effects returned by `Start` are processed on the
 thread that creates the store while the messages they dispatch are already being handled on the store's
 internal queue, and both paths registered subscriptions without synchronization. Subscriptions are now kept
