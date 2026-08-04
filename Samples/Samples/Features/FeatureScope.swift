@@ -13,7 +13,7 @@ class FeatureScope {
             self.connector = KeemunConnector(CounterFeature())
         }
         
-        func makeView() -> CounterFeatureView {
+        @MainActor func makeView() -> CounterFeatureView {
             return .init(connector)
         }
     }
