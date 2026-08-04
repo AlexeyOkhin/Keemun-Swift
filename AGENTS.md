@@ -20,7 +20,7 @@ Swift-фреймворк, реализующий The Elm Architecture (одно�
 
 - `Type/` — примитивы: `Start`, `Update`, `EffectHandler`, `StateTransform`. Все четыре — это структуры-обёртки над замыканием, без состояния.
 - `Store/` — `Store` (единственный класс с изменяемым состоянием, крутит цикл msg → update → effect) и `StoreParams` (контейнер `Start` + `Update` + `[EffectHandler]`).
-- `Feature/` — `KeemunFeature` (протокол, связывает `storeParams` и `featureParams`), `FeatureParams` (маппинг `State → ViewState` и `ExternalMsg → Msg`), `KeemunConnector` (`ObservableObject`-обёртка для SwiftUI; файл называется `KeemnConnector.swift` — опечатка в имени файла).
+- `Feature/` — `KeemunFeature` (протокол, связывает `storeParams` и `featureParams`), `FeatureParams` (маппинг `State → ViewState` и `ExternalMsg → Msg`), `KeemunConnector` (`ObservableObject`-обёртка для SwiftUI).
 - `Next.swift` — результат `Update`: новый `State` + массив `Effect`, плюс DSL-хелперы `.next(...)`.
 - `Msg.swift` — `PairMsg<ExternalMsg, InternalMsg>` и `Update.combine`, разделяющие сообщения от UI и от бизнес-логики.
 
