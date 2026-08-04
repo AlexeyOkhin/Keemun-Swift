@@ -60,13 +60,16 @@ make install_templates      # установить Xcode-шаблоны в ~/Lib
 Тесты не должны опираться на `XCTestExpectation` с таймаутом: для проверки последовательности состояний
 используй `store.state.record()` и `wait(for: recorder.prefix(n), timeout:)` из `CombineExpectations`.
 
+После изменений в `Store` прогоняй `swift test --sanitize=thread` — обычный `swift test` гонки не ловит.
+Вывод должен быть без строк `WARNING: ThreadSanitizer`.
+
 Демо-приложение собирается только из Xcode: `Samples/Samples.xcodeproj`, схема `Samples`.
 
 ## Известные проблемы (не считать за баг в своём коде)
 
 - В репозитории нет git-тегов, поэтому ни SPM, ни CocoaPods не увидят версию из `Keemun.podspec`, пока тег не проставлен.
-- Полноценной поддержки Swift 6 нет: библиотека собирается за счёт `@unchecked Sendable` на `Store`, дженерики `State`/`Msg`/`Effect` не ограничены `Sendable`.
-- `cancellables` в `Store` мутируется из нескольких потоков без синхронизации и никогда не очищается от завершённых подписок.
+- `Store` помечен `@unchecked Sendable`, и убрать это нельзя: мешают `CurrentValueSubject`/`PassthroughSubject` и замыкания внутри `StoreParams`, которые не `Sendable`. Ограничение дженериков `State`/`Msg`/`Effect` на `Sendable` эту причину не устраняет, поэтому его не добавляли. Инвариант, за счёт которого аннотация корректна, описан в комментарии к классу — при правках `Store` его нужно сохранять.
+- Подписки в `Store` не очищаются от завершённых: `CancellableBag` растёт, пока живёт стор.
 - Отменить незавершённый эффект нельзя: `Task` из ветки `.task` нигде не хранится.
 - Композиции фич нет — вложить дочернюю фичу в родительский `Store` нечем, экраны из нескольких блоков собираются из отдельных `Store` через `InputEvent`/`OutputEvent`.
-- Опечатки в именах: файл `KeemnConnector.swift`, поле `dispath` внутри него.
+

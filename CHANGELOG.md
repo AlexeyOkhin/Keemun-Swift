@@ -1,5 +1,9 @@
 # v2.2.0
 - Added support for Swift 6 and `swift-tools-version: 6.2`.
+- Fixed a data race on the store's subscription bookkeeping. Effects returned by `Start` are processed on the
+thread that creates the store while the messages they dispatch are already being handled on the store's
+internal queue, and both paths registered subscriptions without synchronization. Subscriptions are now kept
+in a locked container, and `dispatch` is no longer a lazily initialized property.
 - Added `EffectHandler.init(routing:)` and `EffectHandler.routing`, which let a handler decline an effect by
 returning `nil` so that it is passed on to the next handler.
 - Fixed effects being executed once per registered effect handler. An effect is now offered to the handlers in

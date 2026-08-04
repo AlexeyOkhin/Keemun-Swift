@@ -2,13 +2,19 @@ import Foundation
 import Combine
 
 /// The entity controls all entities and initiates the message processing and side effect mechanism.
+///
+/// The conformance to `Sendable` is unchecked because the store stores Combine subjects and the closures that
+/// make up `StoreParams`, none of which are `Sendable`. It is nevertheless safe to use the store from several
+/// threads: every stored property is immutable after `init`, the subjects synchronize their own access, the
+/// subscriptions are kept in a locked container, and all messages are handled one at a time on a single
+/// serial queue.
 public final class Store<State, Msg, Effect> : @unchecked Sendable {
     private let params: StoreParams<State, Msg, Effect>
     
     private let _state: CurrentValueSubject<State, Never>
     
     private let _messages = PassthroughSubject<Msg, Never>()
-    private var cancellables: Set<AnyCancellable> = []
+    private let cancellables = CancellableBag()
     
     public var currentState: State { self._state.value }
     public let state: AnyPublisher<State, Never>
@@ -24,21 +30,24 @@ public final class Store<State, Msg, Effect> : @unchecked Sendable {
         self.state = self._state.eraseToAnyPublisher()
         
         let observeMessagesQueue = DispatchQueue(label: "keemun.observeMessagesQueue", qos: .userInitiated)
-        self._messages
-            .receive(on: observeMessagesQueue)
-            .buffer(size: .max, prefetch: .keepFull, whenFull: .dropOldest)
-            .sink { [weak self] msg in
-                guard let self else { return }
-                observeMessages(state: _state.value, msg: msg)
-            }
-            .store(in: &self.cancellables)
+        self.cancellables.insert(
+            self._messages
+                .receive(on: observeMessagesQueue)
+                .buffer(size: .max, prefetch: .keepFull, whenFull: .dropOldest)
+                .sink { [weak self] msg in
+                    guard let self else { return }
+                    observeMessages(state: _state.value, msg: msg)
+                }
+        )
         self.effectProcess(startEffects, dispatch: self.dispatch)
     }
     
     /// Sending messages asynchronously.
-    public lazy var dispatch: Dispatch<Msg> = { [weak self] msg in
-        guard let self else { return }
-        _messages.send(msg)
+    public var dispatch: Dispatch<Msg> {
+        return { [weak self] msg in
+            guard let self else { return }
+            _messages.send(msg)
+        }
     }
 
     private func observeMessages(state: State, msg: Msg) {
@@ -55,9 +64,9 @@ public final class Store<State, Msg, Effect> : @unchecked Sendable {
                 guard let operation = effectHandler.routing(effect) else { continue }
                 switch operation {
                 case let .publisher(anyPublisher):
-                    anyPublisher
-                        .sink { msg in dispatch(msg) }
-                        .store(in: &cancellables)
+                    cancellables.insert(
+                        anyPublisher.sink { msg in dispatch(msg) }
+                    )
 
                 case let .task(priority, operation):
                     Task(priority: priority) {
