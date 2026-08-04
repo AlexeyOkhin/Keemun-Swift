@@ -1,5 +1,10 @@
 # v2.2.0
 - Added support for Swift 6 and `swift-tools-version: 6.2`.
+- Added `EffectHandler.init(routing:)` and `EffectHandler.routing`, which let a handler decline an effect by
+returning `nil` so that it is passed on to the next handler.
+- Fixed effects being executed once per registered effect handler. An effect is now offered to the handlers in
+order and executed by the first one that accepts it. Stores configured with a single effect handler are
+unaffected; stores configured with several handlers no longer run the same effect more than once.
 - Added the `next(_:effects:with:)` DSL that mutates state and effects in a single closure.
 - Added Xcode file templates for feature generation (`make install_templates`).
 - Fixed a retain cycle in input event observation.

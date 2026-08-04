@@ -47,10 +47,13 @@ public final class Store<State, Msg, Effect> : @unchecked Sendable {
         effectProcess(next.effects, dispatch: self.dispatch)
     }
     
+    /// Each effect is offered to the handlers in the order they were registered and is executed by the first
+    /// handler that accepts it, so an effect is never handled more than once.
     private func effectProcess(_ effects: [Effect], dispatch: @escaping Dispatch<Msg>) {
-        for effectHandler in self.params.effectHandlers {
-            for effect in effects {
-                switch effectHandler.processing(effect) {
+        for effect in effects {
+            for effectHandler in self.params.effectHandlers {
+                guard let operation = effectHandler.routing(effect) else { continue }
+                switch operation {
                 case let .publisher(anyPublisher):
                     anyPublisher
                         .sink { msg in dispatch(msg) }
@@ -61,6 +64,7 @@ public final class Store<State, Msg, Effect> : @unchecked Sendable {
                         await operation { msg in dispatch(msg) }
                     }
                 }
+                break
             }
         }
     }

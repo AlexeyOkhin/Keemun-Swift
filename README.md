@@ -85,6 +85,24 @@ message.
 `.publisher` (a Combine publisher whose output is fed back into the store) or a `.task` (an async closure that receives
 `dispatch`). Every effect is executed independently of the others.
 
+A store can be configured with several handlers, for example one per domain. Each effect is offered to them in the order
+they were registered and is executed by the first handler that accepts it, so an effect is never executed twice. Build
+such handlers with `init(routing:)` and return `nil` for the effects that belong to somebody else:
+
+```swift
+EffectHandler(routing: { effect in
+    switch effect {
+    case let .loadUser(id):
+        return .task { dispatch in
+            dispatch(.userWasLoaded(user: await loadUser(id: id)))
+        }
+
+    default:
+        return nil
+    }
+})
+```
+
 ## ViewState
 `ViewState` is the projection of `State` that the user interface actually renders. Keeping it separate lets you format
 data once (numbers into strings, flags into visibility) and keep SwiftUI views free of logic.
