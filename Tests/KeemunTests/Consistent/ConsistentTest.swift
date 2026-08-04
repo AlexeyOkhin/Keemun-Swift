@@ -1,10 +1,9 @@
 import XCTest
 import Combine
+import CombineExpectations
 @testable import Keemun
 
 final class ConsistentTest: XCTestCase {
-    private var cancellable: Set<AnyCancellable> = []
-    
     func testUpdater1() throws {
         let userId = 101
         let defaultState = ConsistentState(progress: false, loadedUser: nil)
@@ -24,22 +23,13 @@ final class ConsistentTest: XCTestCase {
     }
     
     func testFull() throws {
-        let expectation = self.expectation(description: "Waiting for the result to be received")
         let store = Keemun.Store(consistentStoreParams())
-        var actual: [ConsistentState] = []
-        store.state
-            .collect(3)
-            .first()
-            .sink {
-                actual = $0
-                expectation.fulfill()
-            }
-            .store(in: &self.cancellable)
+        let recorder = store.state.record()
         
         let userId = 101
         store.dispatch(ConsistentMsg.loadUserById(id: userId))
-    
-        waitForExpectations(timeout: 1)
+        
+        let actual = try wait(for: recorder.prefix(3), timeout: 1)
         
         let expected = [
             ConsistentState(progress: false, loadedUser:  nil), // Initial state

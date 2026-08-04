@@ -38,7 +38,7 @@ $ gem install cocoapods
 To integrate Keemun into your Xcode project using CocoaPods, specify it in your `Podfile`:
 
 ```ruby
-pod 'Keemun', '1.0.0'
+pod 'Keemun', '2.2.0'
 ```
 
 Then, run the following command:
@@ -56,7 +56,7 @@ Once you have your Swift package set up, adding Keemun as a dependency is as eas
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/pavelannin/Keemun-Swift.git", from: "1.0.0")
+    .package(url: "https://github.com/pavelannin/Keemun-Swift.git", from: "2.2.0")
 ]
 ```
 
@@ -81,54 +81,101 @@ Any `Effect` represents an intention to invoke part of your business logic. `Eff
 message.
 
 ## EffectHandler
-`EffectHandler` is the place where business logic is executed. Its method takes `effect` and `dispatch` as arguments. The idea is to be a 
-function that sends messages to `dispatch` according to the received effect and performs the operation. `EffectHandler` is a 
-suspend function, and each effect is executed in a separate coroutine.
+`EffectHandler` is the place where business logic is executed. It maps an `effect` to an `Operation`, which is either a
+`.publisher` (a Combine publisher whose output is fed back into the store) or a `.task` (an async closure that receives
+`dispatch`). Every effect is executed independently of the others.
+
+## ViewState
+`ViewState` is the projection of `State` that the user interface actually renders. Keeping it separate lets you format
+data once (numbers into strings, flags into visibility) and keep SwiftUI views free of logic.
+
+## PairMsg
+`PairMsg<ExternalMsg, InternalMsg>` splits messages into those sent by the user interface (`ExternalMsg`) and those sent
+by business logic from `EffectHandler` (`InternalMsg`). Use `Update.combine(externalUpdate:internalUpdate:)` to handle
+both halves with separate, independently testable `Update` values.
 
 ## Connector
-`Connector` is an entity that holds an instance of `Store`.
+`KeemunConnector` is an `ObservableObject` that holds an instance of `Store`, exposes the current `ViewState` through
+`@Published`, and forwards `ExternalMsg` from the view into the store.
 
 ## StoreParams
 `StoreParams` is a container that holds `Start`, `Update`, and `EffectHandler` in one place for creating a `Store`. 
 `StoreParams` provides several convenient overridden functions for creating it with optional arguments.
 
 ## FeatureParams
-`FeatureParams` is a container that holds `StoreParams`, a function for transforming `State` into `ViewState`, and other parameters 
-required for creating a `Connector`. `FeatureParams` provides several convenient overridden functions for creating it with optional 
-arguments.
+`FeatureParams` is a container that holds a `StateTransform` from `State` into `ViewState` and a function that maps
+`ExternalMsg` into `Msg`. When `State == ViewState` and/or `Msg == ExternalMsg`, shorter initializers are available.
+
+## KeemunFeature
+`KeemunFeature` is the protocol that ties everything together: it exposes `storeParams` and `featureParams`, so a
+connector can be created from a feature with a single call.
 
 # Example
+A feature is a single `struct` conforming to `KeemunFeature`, split across extensions in separate files. The example below
+is the counter from the sample project: the synchronous counter is changed in `Update`, the asynchronous one goes through
+an `Effect`.
 
-## Creating StoreParams
+## Declaring the feature and its StoreParams
 
 ```swift
-struct CounterStoreParams: StoreParams, MsgSplitable {
-    typealias Msg = SplitMsg<ExternalMsg, InternalMsg>
+import Keemun
 
-    func start() -> Start<Self> {
-        .next(
-            .init(
-                syncCount: 0,
-                asyncCount: 0,
-                isAsyncRunning: false
-            )
+struct CounterFeature: KeemunFeature {
+    typealias Msg = PairMsg<ExternalMsg, InternalMsg>
+
+    var storeParams: StoreParams<State, Msg, Effect> {
+        StoreParams(
+            start: Start { .next(.init()) },
+            update: .combine(
+                externalUpdate: Self.externalUpdate,
+                internalUpdate: Self.internalUpdate
+            ),
+            effectHandler: Self.effectHandler()
         )
     }
+}
 
-    static func externalUpdate(for msg: ExternalMsg, state: State) -> Update<Self> {
+extension CounterFeature {
+    struct State {
+        var syncCount: Int = 0
+        var asyncCount: Int = 0
+        var isAsyncRunning: Bool = false
+    }
+}
+```
+
+## Writing Update
+
+`externalUpdate` handles messages coming from the user interface, `internalUpdate` handles messages produced by business
+logic. Both are pure functions, so they can be tested by calling `run` directly.
+
+```swift
+extension CounterFeature {
+    static let externalUpdate = Update<State, ExternalMsg, Effect> { msg, state in
         switch msg {
         case .incrementSync:
             return .next(state) { $0.syncCount = $0.syncCount + 1 }
+
         case .decrementSync:
             return .next(state) { $0.syncCount = $0.syncCount - 1 }
+
         case .incrementAsync:
-            return .next(state, effect: .increment(state.asyncCount)) { $0.isAsyncRunning = true }
+            return .next(state) { state, effects in
+                guard !state.isAsyncRunning else { return }
+                state.isAsyncRunning = true
+                effects.append(.increment(state.asyncCount))
+            }
+
         case .decrementAsync:
-            return .next(state, effect: .decrement(state.asyncCount)) { $0.isAsyncRunning = true }
+            return .next(state) { state, effects in
+                guard !state.isAsyncRunning else { return }
+                state.isAsyncRunning = true
+                effects.append(.decrement(state.asyncCount))
+            }
         }
     }
 
-    static func internalUpdate(for msg: InternalMsg, state: State) -> Update<Self> {
+    static let internalUpdate = Update<State, InternalMsg, Effect> { msg, state in
         switch msg {
         case .completedAsyncOperation(let newValue):
             return .next(state) {
@@ -138,23 +185,6 @@ struct CounterStoreParams: StoreParams, MsgSplitable {
         }
     }
 
-    func effectHandler(for effect: Effect, dispatch: @escaping InternalDispatch) async {
-        switch effect {
-        case .increment(let value):
-            try! await Task.sleep(for: .seconds(1))
-            dispatch(.completedAsyncOperation(value + 1))
-        case .decrement(let value):
-            try! await Task.sleep(for: .seconds(1))
-            dispatch(.completedAsyncOperation(value - 1))
-        }
-    }
-
-    struct State {
-        var syncCount: Int
-        var asyncCount: Int
-        var isAsyncRunning: Bool
-    }
-
     enum ExternalMsg {
         case incrementSync
         case decrementSync
@@ -162,8 +192,32 @@ struct CounterStoreParams: StoreParams, MsgSplitable {
         case decrementAsync
     }
 
-    enum InternalMsg{
+    enum InternalMsg {
         case completedAsyncOperation(Int)
+    }
+}
+```
+
+## Writing EffectHandler
+
+```swift
+extension CounterFeature {
+    static func effectHandler() -> EffectHandler<Effect, InternalMsg> {
+        EffectHandler { effect in
+            switch effect {
+            case .increment(let value):
+                return .task { dispatch in
+                    try? await Task.sleep(for: .seconds(1))
+                    dispatch(.completedAsyncOperation(value + 1))
+                }
+
+            case .decrement(let value):
+                return .task { dispatch in
+                    try? await Task.sleep(for: .seconds(1))
+                    dispatch(.completedAsyncOperation(value - 1))
+                }
+            }
+        }
     }
 
     enum Effect {
@@ -175,15 +229,20 @@ struct CounterStoreParams: StoreParams, MsgSplitable {
 
 ## Creating FeatureParams
 
-```swift
-struct CounterFeatureParams: FeatureParams {
-    typealias SParams = CounterStoreParams
+`viewStateTransform` prepares the data for rendering, `messageTransform` lifts `ExternalMsg` into the feature `Msg`.
 
-    func stateTransform(_ state: CounterStoreParams.State) -> ViewState {
-        ViewState(
-            syncCount: String(state.syncCount),
-            asyncCount: String(state.asyncCount),
-            isAsyncRunning: state.isAsyncRunning
+```swift
+extension CounterFeature {
+    var featureParams: FeatureParams<State, Msg, ViewState, ExternalMsg> {
+        FeatureParams(
+            viewStateTransform: StateTransform { state in
+                ViewState(
+                    syncCount: String(state.syncCount),
+                    asyncCount: String(state.asyncCount),
+                    isAsyncRunning: state.isAsyncRunning
+                )
+            },
+            messageTransform: Msg.up
         )
     }
 
@@ -196,11 +255,15 @@ struct CounterFeatureParams: FeatureParams {
 ```
 
 ## Usage in UI layer
+
+The public view owns the connector, while the private `MainView` receives only plain data and closures, which keeps it
+easy to preview.
+
 ```swift
 struct CounterFeatureView: View {
-    @ObservedObject private var connector: KeemunConnector<CounterFeatureParams>
+    @ObservedObject private var connector: KeemunConnector<CounterFeature.ViewState, CounterFeature.ExternalMsg>
 
-    init(_ connector: KeemunConnector<CounterFeatureParams>) {
+    init(_ connector: KeemunConnector<CounterFeature.ViewState, CounterFeature.ExternalMsg>) {
         self.connector = connector
     }
 
@@ -221,9 +284,25 @@ private struct MainView: View {...}
 ## Creating a connector instance
 
 ```swift
-let connector = CounterFeatureParams().makeConnector(CounterStoreParams())
+let connector = KeemunConnector(CounterFeature())
 CounterFeatureView(connector)
 ```
+
+# Xcode templates
+The repository ships file templates that generate the whole file layout of a feature. Install them with:
+
+```bash
+$ make install_templates
+```
+
+After restarting Xcode the templates appear in `File > New > File` under `Keemun Templates`. Their names combine three
+options:
+
+- `Single` / `Multi` — keep `Update` and `EffectHandler` in one file, or split them into separate ones.
+- `Unified` / `Distributed` — use a single `Msg` type, or split it into `ExternalMsg` and `InternalMsg` via `PairMsg`.
+- `HasInputEvent` / `HasOutputEvent` — add plumbing for receiving events from the outside world and for sending events out.
+
+Run `make uninstall_templates` to remove them.
 
 # Sample project
 The sample project is a screen with two counters: synchronous and asynchronous. The synchronous counter is modified in `Update`, 
